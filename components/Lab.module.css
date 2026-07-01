@@ -1,0 +1,82 @@
+.lab {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.controlHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.controlTitle {
+  font-size: 16px;
+}
+
+.reset {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    border-color 150ms ease;
+}
+.reset:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.reset:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.boxCount {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.boxCountLabel {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.slider {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}

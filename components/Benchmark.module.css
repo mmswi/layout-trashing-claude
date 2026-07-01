@@ -1,0 +1,121 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.title {
+  font-size: 15px;
+}
+
+.button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bg);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: filter 150ms ease;
+}
+.button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.blurb {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.barRow {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.barLabel {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.track {
+  height: 14px;
+  background: var(--bg-input);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.fill {
+  width: 100%;
+  height: 100%;
+  transform-origin: left center;
+  border-radius: 999px;
+  /* Compositor-only transition — the bar itself follows the "transforms" rule. */
+  transition: transform 300ms ease;
+}
+.fillBad {
+  background: var(--bad);
+}
+.fillGood {
+  background: var(--good);
+}
+
+.barValue {
+  font-size: 13px;
+  color: var(--text);
+  text-align: right;
+}
+
+.callout {
+  font-size: 14px;
+  color: var(--text-dim);
+}
+.callout strong {
+  color: var(--bad);
+  font-size: 18px;
+  margin-right: 2px;
+}
+
+.stage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  max-height: 44px;
+  overflow: hidden;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+}
+
+.node {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--accent-dim);
+}

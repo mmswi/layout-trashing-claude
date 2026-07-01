@@ -1,0 +1,136 @@
+/* ============================================================
+   Layout Thrashing Lab — global tokens, resets, and the
+   ".lt-*" classes that technique toggles add to the boxes.
+   Component layout lives in *.module.css files.
+   ============================================================ */
+
+:root {
+  --sans: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  --mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+
+  /* surfaces */
+  --bg: #0a0d13;
+  --bg-panel: #111623;
+  --bg-elev: #19202f;
+  --bg-input: #0d121c;
+  --border: #232b3b;
+  --border-strong: #33405a;
+
+  /* text */
+  --text: #e7ebf3;
+  --text-dim: #9aa5bb;
+  --text-faint: #616d84;
+
+  /* accents + status */
+  --accent: #6ea8fe;
+  --accent-dim: #2b4a7e;
+  --good: #34d399;
+  --warn: #f5b73d;
+  --bad: #f8746e;
+
+  /* pipeline-stage hues (used by tags + technique cards) */
+  --stage-layout: #f8746e;
+  --stage-paint: #f5b73d;
+  --stage-style: #c084fc;
+  --stage-composite: #34d399;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  min-height: 100vh;
+  color: var(--text);
+  background: radial-gradient(1200px 600px at 80% -10%, #16233f 0%, transparent 60%), var(--bg);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+code,
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.2;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+/* ------------------------------------------------------------
+   Baseline motion. Pure transform => composite-only, so the
+   grid looks alive while the main thread stays idle. That idle
+   baseline is what the jank toggles are measured against.
+   ------------------------------------------------------------ */
+@keyframes lt-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  25% {
+    transform: translate3d(5px, -4px, 0) rotate(5deg);
+  }
+  50% {
+    transform: translate3d(0, 5px, 0) rotate(0deg);
+  }
+  75% {
+    transform: translate3d(-5px, -3px, 0) rotate(-5deg);
+  }
+}
+
+/* ------------------------------------------------------------
+   Technique state classes. Techniques add/remove these on the
+   boxes at runtime. Kept global (not CSS-module-hashed) so
+   lib/techniques.ts can toggle them by string name.
+   ------------------------------------------------------------ */
+
+/* These are scoped to [data-box] on purpose: the extra attribute lifts each
+   selector's specificity above the CSS-module .box class, so a toggled state
+   wins at runtime without !important. */
+
+/* transition:all — opts EVERY animatable property into transitions,
+   including the layout-triggering ones (margin here). */
+[data-box].lt-transition-all {
+  transition: all 380ms ease;
+}
+/* the alternate state the transition-all technique flips to: a layout
+   prop (margin) plus paint props (background, radius) so `all` animates
+   all three and the margin transition reflows every frame. */
+[data-box].lt-state-b {
+  margin: 9px;
+  border-radius: 46%;
+  background: var(--warn);
+}
+
+/* paint bomb — a large, blurred shadow. The technique also animates
+   `filter: blur()` inline each frame to force a full repaint. */
+[data-box].lt-paint {
+  box-shadow:
+    0 0 28px 12px rgba(248, 116, 110, 0.8),
+    inset 0 0 16px rgba(255, 255, 255, 0.55);
+}
+
+/* The boxes keep contain: layout (set on .box) as a good-practice baseline. */

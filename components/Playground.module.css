@@ -1,0 +1,34 @@
+.viewport {
+  height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  /* The viewport is a self-contained subtree — safe to isolate. */
+  contain: layout paint;
+}
+
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 6px;
+  padding: 14px;
+}
+
+.box {
+  /* position: relative lets the "animate top/left" technique offset the box. */
+  position: relative;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  /* Width is flickered by the forced-reflow technique; the color makes it show. */
+  border-top: 0 solid var(--accent);
+  background: linear-gradient(135deg, var(--accent) 0%, #7c5cff 100%);
+  /* Scopes each box's layout. The "remove containment" toggle strips this. */
+  contain: layout;
+  /* Baseline motion: transform only, so it composites cheaply and the main
+     thread stays idle until a jank toggle adds work. */
+  animation: lt-drift 3s ease-in-out infinite;
+}
