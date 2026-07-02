@@ -7,7 +7,9 @@ import { Playground } from "@/components/Playground";
 import { TechniqueList } from "@/components/TechniqueList";
 import { createFrameMeter, type FrameMeter, type MetricsSnapshot } from "@/lib/metrics";
 import {
+  ANTI_PATTERN_TECHNIQUES,
   type FrameContext,
+  HEALTHY_CONTROL_TECHNIQUES,
   type LabRefs,
   TECHNIQUES,
   type Technique,
@@ -237,7 +239,24 @@ export const Lab = () => {
             />
           </label>
 
-          <TechniqueList techniques={TECHNIQUES} enabledIds={enabledIds} onToggle={handleToggle} />
+          <TechniqueList
+            techniques={ANTI_PATTERN_TECHNIQUES}
+            enabledIds={enabledIds}
+            onToggle={handleToggle}
+          />
+
+          <div className={styles.groupHead}>
+            <h2 className={styles.controlTitle}>Healthy controls</h2>
+            <p className={styles.groupNote}>
+              Not jank — the same work done right. Tick one against its jank twin above: these stay
+              green.
+            </p>
+          </div>
+          <TechniqueList
+            techniques={HEALTHY_CONTROL_TECHNIQUES}
+            enabledIds={enabledIds}
+            onToggle={handleToggle}
+          />
         </section>
 
         <section className={styles.stage}>

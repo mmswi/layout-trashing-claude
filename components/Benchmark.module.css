@@ -45,6 +45,28 @@
   line-height: 1.5;
 }
 
+.loopList {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.loopBad {
+  color: var(--bad);
+  font-weight: 600;
+}
+
+.loopGood {
+  color: var(--good);
+  font-weight: 600;
+}
+
 .result {
   display: flex;
   flex-direction: column;

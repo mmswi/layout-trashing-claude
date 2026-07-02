@@ -1,5 +1,5 @@
 import { memo } from "react";
-import type { Technique, TechniqueId } from "@/lib/techniques";
+import { TECHNIQUE_KIND, type Technique, type TechniqueId } from "@/lib/techniques";
 import styles from "./TechniqueList.module.css";
 
 type Props = {
@@ -13,6 +13,7 @@ const TechniqueListComponent = ({ techniques, enabledIds, onToggle }: Props) => 
     <ul className={styles.list}>
       {techniques.map((technique) => {
         const isEnabled = enabledIds.has(technique.id);
+        const isHealthyControl = technique.kind === TECHNIQUE_KIND.healthyControl;
         return (
           <li key={technique.id} className={styles.item} data-enabled={isEnabled}>
             <label className={styles.row}>
@@ -23,21 +24,38 @@ const TechniqueListComponent = ({ techniques, enabledIds, onToggle }: Props) => 
                 onChange={() => onToggle(technique.id)}
               />
               <span className={styles.label}>{technique.label}</span>
+              {isHealthyControl ? <span className={styles.kind}>control</span> : null}
               <span className={styles.stage} data-stage={technique.stage}>
                 {technique.stage}
               </span>
             </label>
             <details className={styles.details}>
               <summary className={styles.summary}>{technique.summary}</summary>
-              <p className={styles.note}>
-                <strong>Why it&apos;s slow.</strong> {technique.whySlow}
-              </p>
-              <p className={styles.note}>
-                <strong>The fix.</strong> {technique.theFix}
-              </p>
-              <pre className={styles.snippet}>
-                <code>{technique.badSnippet}</code>
-              </pre>
+              {technique.kind === TECHNIQUE_KIND.antiPattern ? (
+                <>
+                  <p className={styles.note}>
+                    <strong>Why it&apos;s slow.</strong> {technique.whySlow}
+                  </p>
+                  <p className={styles.note}>
+                    <strong>The fix.</strong> {technique.theFix}
+                  </p>
+                  <pre className={styles.snippet}>
+                    <code>{technique.badSnippet}</code>
+                  </pre>
+                </>
+              ) : (
+                <>
+                  <p className={styles.note}>
+                    <strong>Why it&apos;s cheap.</strong> {technique.whyCheap}
+                  </p>
+                  <p className={styles.note}>
+                    <strong>The lesson.</strong> {technique.theLesson}
+                  </p>
+                  <pre className={styles.snippet}>
+                    <code>{technique.goodSnippet}</code>
+                  </pre>
+                </>
+              )}
             </details>
           </li>
         );

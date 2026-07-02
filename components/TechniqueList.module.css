@@ -42,7 +42,8 @@
   font-weight: 500;
 }
 
-.stage {
+/* Shared pill shape for the stage and kind badges. */
+.tag {
   flex: 0 0 auto;
   font-family: var(--mono);
   font-size: 10px;
@@ -51,6 +52,10 @@
   padding: 2px 7px;
   border-radius: 999px;
   border: 1px solid currentcolor;
+}
+
+.stage {
+  composes: tag;
 }
 .stage[data-stage="layout"] {
   color: var(--stage-layout);
@@ -63,6 +68,12 @@
 }
 .stage[data-stage="composite"] {
   color: var(--stage-composite);
+}
+
+/* Healthy controls get a green badge — this toggle is supposed to stay green. */
+.kind {
+  composes: tag;
+  color: var(--good);
 }
 
 .details {

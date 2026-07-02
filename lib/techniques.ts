@@ -1,7 +1,9 @@
 /**
  * The jank catalog. Each Technique is one checkbox: a real, isolated rendering
- * anti-pattern the Lab injects into its animation frame loop so you can watch a
- * specific cost show up in the metrics.
+ * pattern the Lab injects into its animation frame loop so you can watch a
+ * specific cost — or its deliberate absence — show up in the metrics. Most
+ * entries are anti-patterns; two are healthy controls (the batched fix and a
+ * single read-write pair) that do real work and stay green on purpose.
  *
  * NOTE: this is the one file that ships the anti-patterns Mihai's coding
  * standards forbid (interleaved read/write, transition:all, animating layout
@@ -20,8 +22,19 @@ export const PIPELINE_STAGE = {
 } as const;
 export type PipelineStage = (typeof PIPELINE_STAGE)[keyof typeof PIPELINE_STAGE];
 
+// Whether a toggle demonstrates the disease or the cure. Anti-patterns crater
+// the metrics; healthy controls do comparable work and stay green — they are
+// the counter-examples the anti-patterns are measured against.
+export const TECHNIQUE_KIND = {
+  antiPattern: "anti-pattern",
+  healthyControl: "healthy-control",
+} as const;
+export type TechniqueKind = (typeof TECHNIQUE_KIND)[keyof typeof TECHNIQUE_KIND];
+
 export const TECHNIQUE_ID = {
   forcedReflowLoop: "forced-reflow-loop",
+  batchedWriteRead: "batched-write-read",
+  singleReadWritePair: "single-read-write-pair",
   animateLayoutProps: "animate-layout-props",
   transitionAll: "transition-all",
   jankyScrollHandler: "janky-scroll-handler",
@@ -49,17 +62,33 @@ export interface FrameContext {
 // Returned by onEnable; run when the checkbox is unticked or the boxes rebuild.
 export type TechniqueTeardown = (() => void) | undefined;
 
-export interface Technique {
+interface TechniqueBase {
   id: TechniqueId;
   label: string;
   stage: PipelineStage;
   summary: string;
-  whySlow: string;
-  theFix: string;
-  badSnippet: string;
   onEnable?: (refs: LabRefs) => TechniqueTeardown;
   onFrame?: (refs: LabRefs, frame: FrameContext) => void;
 }
+
+// The two variants carry differently-named explainers on purpose: an
+// anti-pattern explains its cost and its fix; a healthy control explains why
+// it stays cheap and what that proves. The UI narrows on `kind` for headings.
+export interface AntiPatternTechnique extends TechniqueBase {
+  kind: typeof TECHNIQUE_KIND.antiPattern;
+  whySlow: string;
+  theFix: string;
+  badSnippet: string;
+}
+
+export interface HealthyControlTechnique extends TechniqueBase {
+  kind: typeof TECHNIQUE_KIND.healthyControl;
+  whyCheap: string;
+  theLesson: string;
+  goodSnippet: string;
+}
+
+export type Technique = AntiPatternTechnique | HealthyControlTechnique;
 
 // Global classes from globals.css that techniques toggle on the boxes.
 const TRANSITION_ALL_CLASS = "lt-transition-all";
@@ -82,13 +111,14 @@ const isEvenFrame = (frameIndex: number): boolean => frameIndex % 2 === 0;
 export const TECHNIQUES: Technique[] = [
   {
     id: TECHNIQUE_ID.forcedReflowLoop,
+    kind: TECHNIQUE_KIND.antiPattern,
     label: "Forced reflow loop (read after write)",
     stage: PIPELINE_STAGE.layout,
     summary: "Writes a style, then reads geometry — for every box, every frame.",
     whySlow:
-      "Reading offsetHeight right after a write forces the browser to flush layout synchronously, mid-loop. N boxes means N full reflows in one frame instead of one.",
+      "The browser batches layout: a write only marks it dirty, planning one reflow before the next paint. But offsetHeight must be a truthful, up-to-date number — so the read forces that reflow right now, mid-loop. N boxes means N full reflows in one frame instead of one.",
     theFix:
-      "Batch it: do all the reads first while layout is still clean, then all the writes. One reflow, not N.",
+      "Batch it: do all the reads first while layout is still clean, then all the writes. One reflow, not N. Tick the batched control below to watch the same work stay green.",
     badSnippet: `for (const box of boxes) {
   box.style.borderTopWidth = flicker; // WRITE → layout dirty
   read(box.offsetHeight);             // READ → forced sync reflow
@@ -107,12 +137,61 @@ export const TECHNIQUES: Technique[] = [
     },
   },
   {
+    id: TECHNIQUE_ID.batchedWriteRead,
+    kind: TECHNIQUE_KIND.healthyControl,
+    label: "Batched writes, then reads (the fix)",
+    stage: PIPELINE_STAGE.layout,
+    summary: "The forced-reflow loop's exact work — batched instead of interleaved.",
+    whyCheap:
+      "Same writes, same reads, different order. All the writes land while layout is dirty anyway; the first read flushes layout once and every read after it hits the clean cache. N reflows per frame become one.",
+    theLesson:
+      "Tick this and the forced-reflow loop one at a time at the same box count. Identical work — one stays green, one craters. The order is the whole difference.",
+    goodSnippet: `for (const box of boxes) box.style.borderTopWidth = flicker; // all writes
+for (const box of boxes) read(box.offsetHeight); // all reads → ONE reflow`,
+    onEnable: (refs) => () => {
+      for (const box of refs.getBoxes()) box.style.borderTopWidth = "";
+    },
+    onFrame: (refs, frame) => {
+      const flickerWidthPx = isEvenFrame(frame.frameIndex) ? "0px" : `${BORDER_FLICKER_PX}px`;
+      const boxes = refs.getBoxes();
+      // Every write first — layout goes dirty once, no matter how many boxes.
+      for (const box of boxes) box.style.borderTopWidth = flickerWidthPx;
+      // Then every read — the first one flushes layout; the rest are cache hits.
+      for (const box of boxes) refs.sinkLayoutRead(box.offsetHeight);
+    },
+  },
+  {
+    id: TECHNIQUE_ID.singleReadWritePair,
+    kind: TECHNIQUE_KIND.healthyControl,
+    label: "One read-write pair, one box",
+    stage: PIPELINE_STAGE.layout,
+    summary: "The forbidden write→read — but once, on a single box, per frame.",
+    whyCheap:
+      "This is the exact write→read the forced-reflow jank loop commits, and the metrics don't move. One flush on one element is a rounding error against the frame budget. A thousand of them in a loop is a frozen page.",
+    theLesson:
+      "Thrashing is not “a read after a write” — it is that pair repeated across many elements, many times per frame. The auto-growing textarea that reads scrollHeight right after a write is fine. The scale is the whole difference.",
+    goodSnippet: `firstBox.style.borderTopWidth = flicker; // WRITE
+read(firstBox.offsetHeight); // READ → one reflow. Once. That's fine.`,
+    onEnable: (refs) => () => {
+      for (const box of refs.getBoxes()) box.style.borderTopWidth = "";
+    },
+    onFrame: (refs, frame) => {
+      const [firstBox] = refs.getBoxes();
+      if (!firstBox) return;
+      firstBox.style.borderTopWidth = isEvenFrame(frame.frameIndex)
+        ? "0px"
+        : `${BORDER_FLICKER_PX}px`;
+      refs.sinkLayoutRead(firstBox.offsetHeight);
+    },
+  },
+  {
     id: TECHNIQUE_ID.animateLayoutProps,
+    kind: TECHNIQUE_KIND.antiPattern,
     label: "Animate top / left (not transform)",
     stage: PIPELINE_STAGE.layout,
     summary: "Moves every box by writing top/left each frame.",
     whySlow:
-      "top and left are layout properties: changing them re-runs layout and paint for the box on every frame. transform would give the same motion to the compositor and skip both.",
+      "top and left are layout properties: changing them re-runs layout and paint on every frame. transform draws the same motion by moving an already-painted layer on the compositor — same pixels, but one property re-runs the pipeline while the other skips to its last stage.",
     theFix: "Animate transform: translate() and opacity only — they run on the compositor thread.",
     badSnippet: `box.style.left = x + "px"; // layout every frame
 box.style.top  = y + "px";
@@ -133,11 +212,12 @@ box.style.top  = y + "px";
   },
   {
     id: TECHNIQUE_ID.transitionAll,
+    kind: TECHNIQUE_KIND.antiPattern,
     label: "transition: all",
     stage: PIPELINE_STAGE.layout,
     summary: "Sets transition:all, then flips several properties at once.",
     whySlow:
-      "all opts every animatable property into the transition, including layout ones like margin. The browser then animates margin frame by frame, reflowing through the whole transition.",
+      "all opts every animatable property into the transition. You meant to fade a background — you also signed up to animate margin, a layout property, so the browser reflows frame after frame through the entire 380ms transition.",
     theFix: "Name the exact properties: transition: transform, opacity. Never all.",
     badSnippet: `.box { transition: all 380ms; }
 /* flipping margin now animates LAYOUT for 380ms */`,
@@ -159,13 +239,14 @@ box.style.top  = y + "px";
   },
   {
     id: TECHNIQUE_ID.jankyScrollHandler,
+    kind: TECHNIQUE_KIND.antiPattern,
     label: "Janky scroll handler",
     stage: PIPELINE_STAGE.layout,
     summary: "On every scroll event, reads getBoundingClientRect for all boxes.",
     whySlow:
-      "getBoundingClientRect forces layout. Doing it for every box on every scroll event runs a burst of reflows between frames while the user scrolls. This demo auto-scrolls so you can watch it.",
+      "Scroll events fire many times a second, between frames. Each one forces a reflow per box — so the thing the user is touching is the thing that freezes. This demo auto-scrolls so you can watch it.",
     theFix:
-      "Cache rects, throttle to requestAnimationFrame, or use IntersectionObserver so the browser reports visibility off the main thread.",
+      "The expensive part is the call, not the value: getBoundingClientRect returns a frozen DOMRect snapshot that is free to read later. Call once and cache it, throttle to requestAnimationFrame, or let IntersectionObserver report visibility off the main thread.",
     badSnippet: `scroller.addEventListener("scroll", () => {
   for (const box of boxes) box.getBoundingClientRect(); // forced reflow ×N / event
 });`,
@@ -198,11 +279,12 @@ box.style.top  = y + "px";
   },
   {
     id: TECHNIQUE_ID.computedStyleLoop,
+    kind: TECHNIQUE_KIND.antiPattern,
     label: "getComputedStyle in a loop",
     stage: PIPELINE_STAGE.layout,
     summary: "Dirties layout, then reads a computed layout value per box.",
     whySlow:
-      "getComputedStyle looks innocent, but reading a layout-dependent value like height forces the same synchronous reflow offsetHeight does — once per call.",
+      "getComputedStyle looks like a passive CSS lookup. It is not. Ask it for a layout-dependent value like height while layout is dirty and it forces the same synchronous reflow offsetHeight does — just wearing a different coat.",
     theFix:
       "Read computed styles once, outside the write loop — or avoid layout-dependent properties in hot paths entirely.",
     badSnippet: `box.style.paddingTop = flicker;              // WRITE
@@ -221,6 +303,7 @@ parseFloat(getComputedStyle(box).height);    // READ → forced reflow`,
   },
   {
     id: TECHNIQUE_ID.paintStorm,
+    kind: TECHNIQUE_KIND.antiPattern,
     label: "Paint bomb (compositor-bound)",
     stage: PIPELINE_STAGE.paint,
     summary: "Heavy blur + shadow, repainted every frame. Watch the boxes stutter — not the FPS.",
@@ -247,3 +330,12 @@ parseFloat(getComputedStyle(box).height);    // READ → forced reflow`,
     },
   },
 ];
+
+// The sidebar renders the catalog as two separate groups, so the jank list
+// holds only anti-patterns and a fix can never be mistaken for one.
+export const ANTI_PATTERN_TECHNIQUES = TECHNIQUES.filter(
+  (technique) => technique.kind === TECHNIQUE_KIND.antiPattern,
+);
+export const HEALTHY_CONTROL_TECHNIQUES = TECHNIQUES.filter(
+  (technique) => technique.kind === TECHNIQUE_KIND.healthyControl,
+);

@@ -7,6 +7,13 @@ import styles from "./Benchmark.module.css";
 const BENCHMARK_NODE_COUNT = 2000;
 const BENCHMARK_TRIAL_COUNT = 5;
 
+// Each trial toggles padding on, then off — two write+read passes over the
+// nodes. Interleaved, every read forces a reflow; batched, only the first
+// read of each pass does. These are the counts the card quotes.
+const PASSES_PER_TRIAL = 2;
+const THRASH_REFLOWS_PER_TRIAL = BENCHMARK_NODE_COUNT * PASSES_PER_TRIAL;
+const BATCHED_REFLOWS_PER_TRIAL = PASSES_PER_TRIAL;
+
 // The two padding values the benchmark toggles. Any real layout change works;
 // padding keeps each node's outer size fixed so the strip stays tidy.
 const PADDING_STATE_A = "1px";
@@ -142,8 +149,27 @@ export const Benchmark = () => {
       </div>
 
       <p className={styles.blurb}>
-        Identical work on {BENCHMARK_NODE_COUNT.toLocaleString()} nodes: interleaved read/write
-        versus every read first, then every write. Median of {BENCHMARK_TRIAL_COUNT} runs.
+        Click the button and two loops race on {BENCHMARK_NODE_COUNT.toLocaleString()} throwaway
+        nodes, built into the strip at the bottom of this card. Both loops do identical work — set a
+        padding on every node, then read every node&apos;s height back. The only difference is the
+        order:
+      </p>
+      <ul className={styles.loopList}>
+        <li>
+          <strong className={styles.loopBad}>Thrash</strong> writes then reads, node by node. Every
+          read finds layout dirty and forces a synchronous reflow —{" "}
+          {THRASH_REFLOWS_PER_TRIAL.toLocaleString()} reflows per run.
+        </li>
+        <li>
+          <strong className={styles.loopGood}>Batched</strong> does every write first, then every
+          read. Only the first read of each pass finds layout dirty — {BATCHED_REFLOWS_PER_TRIAL}{" "}
+          reflows per run.
+        </li>
+      </ul>
+      <p className={styles.blurb}>
+        Each loop runs {BENCHMARK_TRIAL_COUNT} times and the bars report the median. If the tab
+        freezes for a moment, that is the experiment working: the thrash loop really is blocking the
+        main thread.
       </p>
 
       {hasResult ? (
@@ -169,7 +195,8 @@ export const Benchmark = () => {
             <span className={`${styles.barValue} mono`}>{result.batchedMs} ms</span>
           </div>
           <p className={styles.callout}>
-            <strong className="mono">{result.speedup}×</strong> slower for identical work.
+            <strong className="mono">{result.speedup}×</strong> slower with the interleaved order —
+            same writes, same reads, on the same {result.nodeCount.toLocaleString()} nodes.
           </p>
         </div>
       ) : null}

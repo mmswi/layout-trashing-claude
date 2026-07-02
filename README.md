@@ -46,16 +46,21 @@ fix is always the same: **batch every read, then every write.**
 
 ## The technique catalog
 
-Each checkbox is one real, isolated anti-pattern (see `lib/techniques.ts`):
+Each checkbox is one real, isolated pattern (see `lib/techniques.ts`). The
+sidebar shows two separate groups: **Jank toggles** (the anti-patterns) and
+**Healthy controls** — fixes and counter-examples that do comparable work and
+deliberately stay green:
 
-| Toggle | Stage | What it does |
-| --- | --- | --- |
-| Forced reflow loop | Layout | Writes a style then reads `offsetHeight` per box, per frame |
-| Animate top / left | Layout | Moves boxes with layout props instead of `transform` |
-| `transition: all` | Layout | Opts every property into transitions, including `margin` |
-| Janky scroll handler | Layout | Reads `getBoundingClientRect` for all boxes on every scroll event |
-| getComputedStyle in a loop | Layout | The "innocent" call that forces layout just like `offsetHeight` |
-| Paint bomb | Paint | Heavy blur/shadow each frame — compositor-bound, so the main-thread meter can't see it (that's the lesson) |
+| Toggle | Kind | Stage | What it does |
+| --- | --- | --- | --- |
+| Forced reflow loop | anti-pattern | Layout | Writes a style then reads `offsetHeight` per box, per frame |
+| Batched writes, then reads | control | Layout | The forced-reflow loop's exact work, batched — N reflows become one, metrics stay green |
+| One read-write pair, one box | control | Layout | The forbidden write→read once, on one box — a rounding error; scale is the whole difference |
+| Animate top / left | anti-pattern | Layout | Moves boxes with layout props instead of `transform` |
+| `transition: all` | anti-pattern | Layout | Opts every property into transitions, including `margin` |
+| Janky scroll handler | anti-pattern | Layout | Reads `getBoundingClientRect` for all boxes on every scroll event |
+| getComputedStyle in a loop | anti-pattern | Layout | The "innocent" call that forces layout just like `offsetHeight` |
+| Paint bomb | anti-pattern | Paint | Heavy blur/shadow each frame — compositor-bound, so the main-thread meter can't see it (that's the lesson) |
 
 The **box-count slider** (50–3000) scales DOM size so you can find where each
 technique starts to hurt.

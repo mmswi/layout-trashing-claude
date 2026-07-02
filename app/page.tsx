@@ -1,10 +1,12 @@
 import { Lab } from "@/components/Lab";
 import styles from "./page.module.css";
 
-// The three pipeline stages the legend explains. Composite is the cheap one the
-// baseline animation rides; layout is the villain most toggles trigger.
+// The pipeline stages the legend explains, in pipeline order. Composite is the
+// cheap one the baseline animation rides; layout is the villain most toggles
+// trigger. Style and Layout run on the main thread; raster and composite don't.
 const PIPELINE_STAGES = [
-  { key: "layout", label: "Layout", note: "geometry — the expensive one" },
+  { key: "style", label: "Style", note: "which rules apply — rarely the bottleneck" },
+  { key: "layout", label: "Layout", note: "geometry — the expensive one, main thread" },
   { key: "paint", label: "Paint", note: "pixels — scales with area" },
   { key: "composite", label: "Composite", note: "transform / opacity — cheap, GPU" },
 ];
@@ -24,20 +26,31 @@ const Home = () => {
 
       <section className={styles.primer}>
         <article>
-          <h2>1 · Forced synchronous layout</h2>
+          <h2>1 · The browser batches layout</h2>
           <p>
-            Reading a geometry value — offsetHeight, getBoundingClientRect, getComputedStyle — right
-            after you change the DOM forces the browser to recompute layout on the spot. Do it in a
-            loop and you pay for N reflows instead of one. The fix never changes: batch every read,
-            then every write.
+            Changing the DOM does not recompute anything. A write just marks layout dirty — the plan
+            is to recompute geometry once, right before the next paint, no matter how many writes
+            your code makes. Clean layout is cached and free to read. Dirty layout is a promise to
+            recompute <em>later</em>.
           </p>
         </article>
         <article>
-          <h2>2 · Expensive frames</h2>
+          <h2>2 · Reads turn &quot;later&quot; into &quot;right now&quot;</h2>
           <p>
-            Some properties are cheap to animate and some aren&apos;t. transform and opacity ride
-            the compositor. top, left, width and margin re-run layout every frame; big shadows and
-            blur re-paint every frame. Animate the wrong one at scale and the frame budget is gone.
+            Ask for a geometry value — offsetHeight, getBoundingClientRect, getComputedStyle — while
+            layout is dirty, and the browser must reflow synchronously to answer truthfully. In a
+            loop that is N reflows per frame instead of one. The fix never changes: batch every
+            read, then every write. One pair on one element is a rounding error; the scale is the
+            whole difference.
+          </p>
+        </article>
+        <article>
+          <h2>3 · Expensive frames, and a meter that can lie</h2>
+          <p>
+            transform and opacity ride the compositor. top, left, width and margin re-run layout
+            every frame; big shadows and blur re-paint every frame — on the compositor thread, where
+            a main-thread FPS meter cannot see the cost. Always know which thread your metric is
+            watching.
           </p>
         </article>
       </section>

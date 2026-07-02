@@ -33,6 +33,19 @@
   font-size: 16px;
 }
 
+.groupHead {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.groupNote {
+  font-size: 12px;
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
 .reset {
   font: inherit;
   font-size: 12px;
