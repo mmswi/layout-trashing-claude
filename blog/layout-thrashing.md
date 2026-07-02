@@ -493,3 +493,46 @@ The browser batches layout, so it computes geometry once per frame.
 A read after a write forces it to compute *now*, in the middle of your loop.
 
 Move every read above every write, and a thousand reflows collapse into one.
+
+## Cheat sheet: how layout thrashing happens
+
+It always takes two ingredients in the same frame:
+
+    a write that dirties layout   +   a geometry read that needs it clean
+    ──────────────────────────────────────────────────────────────────────
+    = the browser recomputes layout right now, to answer the read
+
+Everything below is a variation on that one recipe.
+
+**The reads that force layout** (asking any of these while layout is dirty triggers a reflow):
+
+| Read | Notes |
+|---|---|
+| `offsetTop / offsetLeft / offsetWidth / offsetHeight` | the classic |
+| `clientTop / clientWidth / clientHeight` | |
+| `scrollTop / scrollWidth / scrollHeight` | |
+| `getBoundingClientRect()` | forces layout on the **call**, not on reading the returned rect |
+| `window.innerWidth / innerHeight` | yes, even these |
+| `getComputedStyle(el).height` (any layout value) | looks passive, forces layout anyway |
+
+**The shapes it takes, and the fix for each:**
+
+| How it happens | Why it thrashes | The fix |
+|---|---|---|
+| Read then write, interleaved in a loop (`offsetHeight` → `style.height` → next) | Each read forces a full layout — N boxes, N reflows | Read all first, then write all |
+| `getBoundingClientRect()` called once per element in a loop | Every call forces layout again | Call once, cache the `DOMRect`, read `.top/.height` off the snapshot |
+| `getComputedStyle(el)` sprinkled through a render loop | It's not a free CSS lookup — it flushes layout like `offsetHeight` | Cache the value; don't re-read per element |
+| A scroll handler measuring every box each tick | Scroll fires many times a second; each tick = N reflows | `IntersectionObserver`, or throttle to one read per frame |
+| Reads look batched, but a `setState`/deferred write commits between events | The write and the read live in different frames — thrash across time, invisible in any single function | `IntersectionObserver` — let the browser report crossings; stop asking |
+| Animating `left` / `top` | Layout property → re-runs Layout → Paint → Composite every frame | Animate `transform: translate(...)` — straight to Composite, off the main thread |
+| `transition: all` | Opts every property in, including layout ones like `margin` | Name only the properties you animate |
+
+**When it's *not* thrashing (don't over-correct):**
+
+| Situation | Verdict |
+|---|---|
+| One write→read→write on a single element (auto-grow textarea) | Fine — one flush, once per keystroke. Scale is the whole difference. |
+| Thrashing over 10,000 DOM nodes | The problem is the node count — virtualize, don't reflow them more politely |
+| Green FPS meter, but the page still stutters | You may be paint-bound. A rAF FPS counter watches the **main thread**; raster runs on the compositor. Check DevTools rendering stats. |
+
+The one rule under all of it: **reads now, writes later — never interleaved.**
