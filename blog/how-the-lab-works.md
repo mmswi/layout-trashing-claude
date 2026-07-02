@@ -63,7 +63,7 @@ export type Technique = AntiPatternTechnique | HealthyControlTechnique;
 
 Everything the UI shows — the label, the color-coded stage tag, the explainer under the checkbox — lives in the same object as the code that does the damage.
 
-Most entries are anti-patterns. Two are **healthy controls**: the batched fix and a single read-write pair. They run real per-frame work and stay green on purpose — they are the counter-examples the anti-patterns get compared against.
+Most entries are anti-patterns. Three are **healthy controls**: the batched fix, a single read-write pair, and an IntersectionObserver tracker. They run real per-frame work and stay green on purpose — they are the counter-examples the anti-patterns get compared against.
 
 The sidebar keeps the two kinds physically apart. The registry exports two filters over the same array:
 
@@ -287,6 +287,54 @@ gridRef.current.dataset.sink = String(layoutReadSink.current | 0);
 The values now observably escape into the document. The engine can never prove them dead, so it can never skip the reflow.
 
 The benchmark does the same trick with a `data-checksum` attribute — which doubles as an honesty check that both of its loops did identical work.
+
+## One job, two costs: the scroll-tracking pair
+
+Two toggles do the *same visible job*: as the scroll area drifts up and down, they highlight the box currently at the top of the view — the way a docs site's table of contents highlights the heading you're reading. A yellow box sweeps through the grid. That is the "active heading."
+
+The janky version is the one most codebases ship. It listens to scroll and asks every box where it is:
+
+    scroll event fires
+    ↓
+    getBoundingClientRect() × N boxes            (reads)
+    ↓
+    move the highlight class to the nearest box   (write → layout dirty)
+    ↓
+    next scroll event: the first read pays a full forced reflow
+
+That last arrow is the part that hides from code review.
+
+No single handler call looks wrong. The reads are "just reads." The write is one class flip. Inside one event, read-read-read-then-write is even the *correct* order.
+
+The thrash only exists **across events**: every event's write poisons the next event's first read. Frame after frame, forever, for as long as the user scrolls. In a real React TOC the write is sneakier still — it's a `setState` whose DOM commit lands between events, so the dirtying write isn't even visible in the handler you're reviewing.
+
+The IntersectionObserver version deletes the reads instead of reordering them:
+
+```ts
+const observer = new IntersectionObserver(
+  (observerEntries) => {
+    // The browser already did the geometry, off the hot path. This
+    // handler never reads the DOM — there is nothing left to force.
+    for (const entry of observerEntries) {
+      if (entry.isIntersecting) boxesInZone.add(entry.target);
+      else boxesInZone.delete(entry.target);
+    }
+    highlightFirstBoxInZone();
+  },
+  { root: scrollArea, rootMargin: "0px 0px -85% 0px", threshold: 0 },
+);
+for (const box of boxes) observer.observe(box);
+```
+
+The zone is described **once**: the observer's root is the scroll area, and the `rootMargin` of `0px 0px -85% 0px` shaves 85% off the bottom, so only the top 15% of the viewport counts as "the zone." From then on the browser computes intersections on its own schedule and calls back with ready-made entries — each one even carries a precomputed `boundingClientRect`, free.
+
+The handler maintains a Set of boxes currently in the zone, picks the first one in document order (the Map from element to index is built once, at enable), and flips one class.
+
+It still *writes* — the highlight moves, layout gets dirtied, the browser reflows once before the next paint, exactly as designed. What's gone is the *asking*. No geometry question is ever put to the DOM, so there is no read for the dirty layout to ambush.
+
+Both toggles share the same auto-scroll driver (one `autoScrollForFrame` helper), so the motion is identical and only the tracking cost differs. Tick them one at a time: same sweeping highlight, one meter craters, one stays green.
+
+This pair isn't hypothetical. A production docs TOC that tracked its active heading the janky way — scroll listener, rect reads per heading, React state write — was refactored to exactly this IntersectionObserver shape. Measured before and after: layout reads per frame fell from 25.2 to 3.6, and the share of frames with thrashing fell from 60% to 6%. Same highlight, same UX, an order of magnitude less main-thread work.
 
 ## The meter: from deltas to numbers
 

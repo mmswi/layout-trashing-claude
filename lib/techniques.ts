@@ -2,8 +2,9 @@
  * The jank catalog. Each Technique is one checkbox: a real, isolated rendering
  * pattern the Lab injects into its animation frame loop so you can watch a
  * specific cost — or its deliberate absence — show up in the metrics. Most
- * entries are anti-patterns; two are healthy controls (the batched fix and a
- * single read-write pair) that do real work and stay green on purpose.
+ * entries are anti-patterns; the healthy controls (the batched fix, a single
+ * read-write pair, and an IntersectionObserver tracker) do real work and stay
+ * green on purpose.
  *
  * NOTE: this is the one file that ships the anti-patterns Mihai's coding
  * standards forbid (interleaved read/write, transition:all, animating layout
@@ -38,6 +39,7 @@ export const TECHNIQUE_ID = {
   animateLayoutProps: "animate-layout-props",
   transitionAll: "transition-all",
   jankyScrollHandler: "janky-scroll-handler",
+  intersectionObserverTracking: "intersection-observer-tracking",
   computedStyleLoop: "computed-style-loop",
   paintStorm: "paint-storm",
 } as const;
@@ -94,6 +96,7 @@ export type Technique = AntiPatternTechnique | HealthyControlTechnique;
 const TRANSITION_ALL_CLASS = "lt-transition-all";
 const STATE_B_CLASS = "lt-state-b";
 const PAINT_CLASS = "lt-paint";
+const TRACKED_BOX_CLASS = "lt-tracked";
 
 // Tuning for the per-frame effects. Named so the intent reads at a glance.
 const BORDER_FLICKER_PX = 2; // width the forced-reflow write toggles
@@ -104,9 +107,24 @@ const TRANSITION_TOGGLE_FRAMES = 22; // flip transition:all state every N frames
 const PAINT_BLUR_BASE_PX = 4;
 const PAINT_BLUR_SWING_PX = 8;
 const PAINT_BLUR_SPEED = 0.004;
-const AUTOSCROLL_SPEED = 0.0012; // how fast the janky-scroll demo self-scrolls
+const AUTOSCROLL_SPEED = 0.0012; // how fast the scroll-tracking demos self-scroll
+
+// Only the top slice of the scroll viewport counts as "the zone" the tracked
+// box is picked from. The IO control describes it once, via rootMargin.
+const TRACKING_ZONE_ROOT_MARGIN = "0px 0px -85% 0px";
 
 const isEvenFrame = (frameIndex: number): boolean => frameIndex % 2 === 0;
+
+// Drives the self-scrolling both scroll-tracking techniques share, so the janky
+// and healthy versions move identically and only their tracking cost differs.
+const autoScrollForFrame = (refs: LabRefs, frame: FrameContext): void => {
+  const scrollArea = refs.getScrollArea();
+  if (!scrollArea) return;
+  const scrollableDistance = scrollArea.scrollHeight - scrollArea.clientHeight;
+  if (scrollableDistance <= 0) return;
+  const progress = (Math.sin(frame.timeMs * AUTOSCROLL_SPEED) + 1) / 2;
+  scrollArea.scrollTop = progress * scrollableDistance;
+};
 
 export const TECHNIQUES: Technique[] = [
   {
@@ -240,42 +258,115 @@ box.style.top  = y + "px";
   {
     id: TECHNIQUE_ID.jankyScrollHandler,
     kind: TECHNIQUE_KIND.antiPattern,
-    label: "Janky scroll handler",
+    label: "Janky scroll tracking (TOC-style)",
     stage: PIPELINE_STAGE.layout,
-    summary: "On every scroll event, reads getBoundingClientRect for all boxes.",
+    summary:
+      "Highlights the box at the top of the view — a docs TOC tracking the active heading — by reading getBoundingClientRect for every box on every scroll event.",
     whySlow:
-      "Scroll events fire many times a second, between frames. Each one forces a reflow per box — so the thing the user is touching is the thing that freezes. This demo auto-scrolls so you can watch it.",
+      "Two sins compound. Per event: getBoundingClientRect × N boxes, a burst of main-thread reads between frames. Across events: after the reads it moves the highlight — a DOM write — so the NEXT event's first read finds layout dirty and pays a full forced reflow. No single call looks wrong; the read→write cycle across events is the thrash.",
     theFix:
-      "The expensive part is the call, not the value: getBoundingClientRect returns a frozen DOMRect snapshot that is free to read later. Call once and cache it, throttle to requestAnimationFrame, or let IntersectionObserver report visibility off the main thread.",
+      "The expensive part is the call, not the value: getBoundingClientRect returns a frozen DOMRect snapshot that is free to read later. Cache it, throttle to requestAnimationFrame — or tick the IntersectionObserver control: same tracking, no reads at all.",
     badSnippet: `scroller.addEventListener("scroll", () => {
-  for (const box of boxes) box.getBoundingClientRect(); // forced reflow ×N / event
+  for (const box of boxes) box.getBoundingClientRect(); // READ ×N, every event
+  active.classList.add("tracked"); // WRITE → next event's reads pay a reflow
 });`,
     onEnable: (refs) => {
       const scrollArea = refs.getScrollArea();
       if (!scrollArea) return;
+      let trackedBox: HTMLElement | null = null;
       const handleScroll = () => {
-        let nearestBoxOffset = Number.POSITIVE_INFINITY;
+        const zoneTopPx = scrollArea.getBoundingClientRect().top; // READ
+        let nearestBox: HTMLElement | null = null;
+        let nearestDistancePx = Number.POSITIVE_INFINITY;
         for (const box of refs.getBoxes()) {
           // A forced reflow on every box, on every scroll event, on the main thread.
-          const rect = box.getBoundingClientRect();
-          nearestBoxOffset = Math.min(nearestBoxOffset, Math.abs(rect.top));
+          const distancePx = Math.abs(box.getBoundingClientRect().top - zoneTopPx);
+          if (distancePx < nearestDistancePx) {
+            nearestDistancePx = distancePx;
+            nearestBox = box;
+          }
         }
-        if (Number.isFinite(nearestBoxOffset)) refs.sinkLayoutRead(nearestBoxOffset);
+        if (nearestBox && nearestBox !== trackedBox) {
+          // WRITE after all those reads — layout is dirty again, so the next
+          // scroll event's first read forces a fresh reflow. Forever.
+          trackedBox?.classList.remove(TRACKED_BOX_CLASS);
+          nearestBox.classList.add(TRACKED_BOX_CLASS);
+          trackedBox = nearestBox;
+        }
+        if (Number.isFinite(nearestDistancePx)) refs.sinkLayoutRead(nearestDistancePx);
       };
       scrollArea.addEventListener("scroll", handleScroll, { passive: true });
       return () => {
         scrollArea.removeEventListener("scroll", handleScroll);
+        trackedBox?.classList.remove(TRACKED_BOX_CLASS);
         scrollArea.scrollTop = 0;
       };
     },
-    onFrame: (refs, frame) => {
+    onFrame: autoScrollForFrame,
+  },
+  {
+    id: TECHNIQUE_ID.intersectionObserverTracking,
+    kind: TECHNIQUE_KIND.healthyControl,
+    label: "IntersectionObserver tracking (the fix)",
+    stage: PIPELINE_STAGE.layout,
+    summary:
+      "The same moving highlight, same auto-scroll — but the browser reports the zone crossings.",
+    whyCheap:
+      "The zone is described once (root + rootMargin); from then on the browser computes intersections on its own schedule and calls back with ready-made entries. The handler only flips a class — it never asks the DOM a geometry question, so there is nothing to force. Writes still happen; the reads are gone.",
+    theLesson:
+      "You rarely need per-scroll rect reads to know where something is. Describe the zone once and let the browser report crossings — this is how a docs TOC should track its active heading. A real TOC refactored this way went from 25 layout reads per frame to 3.6, and from 60% thrashing frames to 6%.",
+    goodSnippet: `const observer = new IntersectionObserver(trackTopmostBox, {
+  root: scroller,
+  rootMargin: "0px 0px -85% 0px", // only the top 15% counts as "the zone"
+});
+for (const box of boxes) observer.observe(box); // zero layout reads from here on`,
+    onEnable: (refs) => {
       const scrollArea = refs.getScrollArea();
       if (!scrollArea) return;
-      const scrollableDistance = scrollArea.scrollHeight - scrollArea.clientHeight;
-      if (scrollableDistance <= 0) return;
-      const progress = (Math.sin(frame.timeMs * AUTOSCROLL_SPEED) + 1) / 2;
-      scrollArea.scrollTop = progress * scrollableDistance;
+
+      const boxes = refs.getBoxes();
+      const boxOrder = new Map<Element, number>(boxes.map((box, index) => [box, index]));
+      const boxesInZone = new Set<Element>();
+      let trackedBox: Element | null = null;
+
+      const highlightFirstBoxInZone = () => {
+        let firstBox: Element | null = null;
+        let firstBoxIndex = Number.POSITIVE_INFINITY;
+        for (const box of boxesInZone) {
+          const index = boxOrder.get(box) ?? Number.POSITIVE_INFINITY;
+          if (index < firstBoxIndex) {
+            firstBoxIndex = index;
+            firstBox = box;
+          }
+        }
+        const isAlreadyTracked = firstBox === trackedBox;
+        if (isAlreadyTracked) return;
+        trackedBox?.classList.remove(TRACKED_BOX_CLASS);
+        firstBox?.classList.add(TRACKED_BOX_CLASS);
+        trackedBox = firstBox;
+      };
+
+      const observer = new IntersectionObserver(
+        (observerEntries) => {
+          // The browser already did the geometry, off the hot path. This
+          // handler never reads the DOM — there is nothing left to force.
+          for (const entry of observerEntries) {
+            if (entry.isIntersecting) boxesInZone.add(entry.target);
+            else boxesInZone.delete(entry.target);
+          }
+          highlightFirstBoxInZone();
+        },
+        { root: scrollArea, rootMargin: TRACKING_ZONE_ROOT_MARGIN, threshold: 0 },
+      );
+      for (const box of boxes) observer.observe(box);
+
+      return () => {
+        observer.disconnect();
+        trackedBox?.classList.remove(TRACKED_BOX_CLASS);
+        scrollArea.scrollTop = 0;
+      };
     },
+    onFrame: autoScrollForFrame,
   },
   {
     id: TECHNIQUE_ID.computedStyleLoop,

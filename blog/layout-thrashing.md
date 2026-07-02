@@ -243,6 +243,7 @@ There's a canonical list (Paul Irish maintains it). The ones you actually hit:
 - `clientTop`, `clientWidth`, `clientHeight`
 - `scrollTop`, `scrollWidth`, `scrollHeight`
 - `getBoundingClientRect()`
+- `window.innerWidth`, `window.innerHeight` — yes, even these
 - `getComputedStyle(el)` — when you read a layout-dependent value off it
 
 That last one is the sneaky one.
@@ -308,7 +309,70 @@ Scroll events fire fast — many times a second, in the gaps between frames. Eac
 
 So the user drags, and every scroll tick is doing hundreds of reflows. The scroll stutters. The thing they're touching is the thing that's frozen.
 
-The fix is the same shape: read once and cache, throttle to one read per frame, or let the browser report visibility with `IntersectionObserver` — which runs off the main thread and never forces a reflow.
+The fix is the same shape: read once and cache, or throttle to one read per frame.
+
+But this handler at least contains its own crime — the reads and the loop are right there to review. The worst version of this bug doesn't.
+
+## The write you can't see: thrashing across frames
+
+Here is a real one, from a production docs site.
+
+The table of contents highlights the heading you're currently reading. A scroll handler finds it:
+
+```tsx
+const handleScroll = () => {
+  for (const heading of headings) {
+    const rect = heading.getBoundingClientRect(); // READ — clean, right?
+    // ...find the heading nearest the top of the viewport
+  }
+  setActiveHeadingId(nearest); // React state update. Not a DOM write... yet.
+};
+```
+
+Now look for the write→read interleave.
+
+It is not there.
+
+All the reads happen first. Then one `setState`. Inside this function, the ordering is textbook-correct.
+
+But `setState` is a *deferred* write. React re-renders and commits the new highlight class to the DOM after the handler returns — in the gap between this scroll event and the next one.
+
+So the timeline across events looks like this:
+
+    scroll event 1:  reads (layout clean — cheap) → setState
+    ↓
+    React commits the highlight class   → layout is dirty now
+    ↓
+    scroll event 2:  first read         → FORCED REFLOW
+    ↓
+    React commits the next highlight    → dirty again
+    ↓
+    scroll event 3:  first read         → forced reflow again…
+
+No single function contains the anti-pattern. The write and the read live in different frames. The interleaving only exists across time — which is exactly why it survives code review. Every piece, reviewed alone, is correct.
+
+Measured on that TOC, with a heading list about twenty items long: **25 layout reads per frame** while scrolling, and **60% of frames** doing forced-layout work.
+
+The fix didn't reorder the reads. It deleted them.
+
+`IntersectionObserver` lets you describe the zone you care about once — and then the *browser* tells you when things cross it:
+
+```ts
+const observer = new IntersectionObserver(onHeadingsCrossed, {
+  rootMargin: "0px 0px -66% 0px", // only the top third counts as "being read"
+});
+headings.forEach((heading) => observer.observe(heading));
+```
+
+The observer computes intersections off the hot path and calls back with ready-made entries — each one already carrying a `boundingClientRect`, precomputed, free. The handler flips a class and never asks the DOM a geometry question.
+
+Same TOC, after the refactor: **3.6 reads per frame. 6% thrashing frames instead of 60%.** Same highlight, same UX.
+
+And notice what the fix did *not* do: it did not stop writing. The highlight still moves, the class flip still dirties layout, and the browser still reflows once before the next paint — exactly as designed.
+
+Writes are unavoidable. The page has to change; that is the point of the page.
+
+What you can avoid is asking geometry questions while the answer is being recomputed. Stop the asking, and the writes go back to being what the browser always wanted them to be: batched, once, right before paint.
 
 ## The real fix, generalized: reads now, writes later
 

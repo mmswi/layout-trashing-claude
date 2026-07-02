@@ -125,6 +125,17 @@ h3 {
   background: var(--warn);
 }
 
+/* The "active heading" highlight the two scroll-tracking techniques move
+   around. It changes the box's SIZE on purpose: highlighting an item is a real
+   DOM write that dirties layout — writing is fine; it's the read-after-write
+   that thrashes. The IO version writes this too and still stays green. */
+[data-box].lt-tracked {
+  width: 30px;
+  height: 30px;
+  background: var(--warn);
+  box-shadow: 0 0 12px rgba(245, 183, 61, 0.9);
+}
+
 /* paint bomb — a large, blurred shadow. The technique also animates
    `filter: blur()` inline each frame to force a full repaint. */
 [data-box].lt-paint {

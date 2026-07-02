@@ -58,7 +58,8 @@ deliberately stay green:
 | One read-write pair, one box | control | Layout | The forbidden write→read once, on one box — a rounding error; scale is the whole difference |
 | Animate top / left | anti-pattern | Layout | Moves boxes with layout props instead of `transform` |
 | `transition: all` | anti-pattern | Layout | Opts every property into transitions, including `margin` |
-| Janky scroll handler | anti-pattern | Layout | Reads `getBoundingClientRect` for all boxes on every scroll event |
+| Janky scroll tracking (TOC-style) | anti-pattern | Layout | Highlights the "active" box by reading `getBoundingClientRect` for all boxes on every scroll event — then writes the highlight, so the next event's reads pay a forced reflow |
+| IntersectionObserver tracking | control | Layout | The same moving highlight, but the browser reports zone crossings — no geometry reads at all |
 | getComputedStyle in a loop | anti-pattern | Layout | The "innocent" call that forces layout just like `offsetHeight` |
 | Paint bomb | anti-pattern | Paint | Heavy blur/shadow each frame — compositor-bound, so the main-thread meter can't see it (that's the lesson) |
 
